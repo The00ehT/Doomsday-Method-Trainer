@@ -1,7 +1,7 @@
 # Weekday Trainer · Wochentag-Trainer
 
 A small offline web app for practising mental weekday calculation: it shows a random date from a range you choose, you tap the weekday, and it measures your time, analyses your mistakes and rewards your progress.
-### ▶ [Play now](https://the00eht.github.io/Weekday-Trainer/)
+### ▶ [Play now](https://the00eht.github.io/Doomsday-Method-Trainer/)
 
 No download, no account, works in any browser. Available in English and German.
 *Deutsch weiter unten.*
