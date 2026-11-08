@@ -248,6 +248,7 @@ nav.tabs button[aria-selected="true"]{color:var(--accent);font-weight:600}
 .march small{font-size:10px;line-height:1.2;text-align:center;max-width:100%;min-height:2.4em;hyphens:manual;letter-spacing:-.01em}
 .march em{font-style:normal;font-size:9px;color:var(--muted);text-align:center;line-height:1.2}
 .march .now small,.march .done small{font-weight:600}
+.sround{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:2px 0 8px;font-size:11px;color:var(--muted);text-align:center}.sround span{background:var(--soft);border-radius:8px;padding:6px 2px;line-height:1.25}.sround b{display:block;font-size:15px;color:var(--ink)}
 .stage-card{animation:stIn .22s ease-out}@keyframes stIn{from{opacity:0;transform:translateY(-6px)}}@media (prefers-reduced-motion:reduce){.stage-card{animation:none}}
 .evo-bar{height:8px;border-radius:4px;background:var(--soft);overflow:hidden}
 .evo-bar i{display:block;height:100%;background:var(--accent);border-radius:4px}
@@ -594,24 +595,35 @@ function stepShow(k){
   if(k===0) fbIdle();
   setPadEnabled(true); t0=performance.now(); tick();
 }
-function stepAnswer(i){
-  if(!SM||SM.waiting||counting||SM.taps[SM.step]!=null) return;
-  cancelAnimationFrame(raf); const k=SM.step, ms=Math.round(performance.now()-t0), c=SM.truth[k], num=(i+1)%7, ok=num===c, cw=(c+6)%7;
+function stepAnswer(i,skip){
+  if(!SM||SM.waiting||counting||SM.ms[SM.step]!=null) return;
+  cancelAnimationFrame(raf); const k=SM.step, ms=Math.round(performance.now()-t0), c=SM.truth[k], num=skip?null:(i+1)%7, ok=num===c, cw=(c+6)%7;
   SM.taps[k]=num; SM.ms[k]=ms; $("timer").textContent=fmtS(ms);
-  pad.querySelectorAll("button[data-i]").forEach(b=>{const x=+b.dataset.i; b.disabled=true; if(x===cw)b.classList.add("ok"); else if(x===i)b.classList.add("no");});
-  fx(pad.querySelector(`[data-i="${ok?cw:i}"]`), ok?"glow":"shake"); fx(document.querySelector(".leaf"), ok?"glow":"shake");
-  $("leafLabel").textContent=ok?`✅ ${tr("Richtig","Correct")}: ${c}`:`❌ ${tr("Richtig wäre","Correct is")} ${c}`;
+  pad.querySelectorAll("button[data-i]").forEach(b=>{const x=+b.dataset.i; b.disabled=true; if(x===cw)b.classList.add("ok"); else if(!skip&&x===i)b.classList.add("no");});
+  fx(pad.querySelector(`[data-i="${ok||skip?cw:i}"]`), ok?"glow":"shake"); fx(document.querySelector(".leaf"), ok?"glow":"shake");
+  $("leafLabel").textContent=ok?`✅ ${tr("Richtig","Correct")}: ${c}`:skip?`⏭ ${tr("Übersprungen, richtig wäre","Skipped, correct is")} ${c}`:`❌ ${tr("Richtig wäre","Correct is")} ${c}`;
   if(k<2){ SM.waiting=true; if(ok&&prefs.auto) nextTimer=setTimeout(()=>stepShow(k+1),600); return; }
   answered=true; const nOk=SM.taps.filter((t,x)=>t===SM.truth[x]).length, tot=SM.ms.reduce((p,v)=>p+v,0);
   $("leafLabel").textContent=`${ok?"✅":"❌"} ${c} · ${tr("Runde","Round")} ${nOk}/3 · ${fmtS(tot)}`;
-  addStepRound([Date.now(), iso(SM.dt), SM.taps[0], SM.taps[1], SM.taps[2], SM.ms[0], SM.ms[1], SM.ms[2], 2]);
+  saveStep();
   if(nOk===3 && prefs.auto) nextTimer=setTimeout(newRound, 1200);
 }
-function nextAction(){ clearTimeout(nextTimer); if(prefs.tmode==="steps"&&SM&&SM.waiting&&SM.step<2) stepShow(SM.step+1); else newRound(); }
+// store the round once; a round left early keeps its answered steps, the rest count as not solved
+function saveStep(){
+  if(!SM||SM.saved||!SM.ms.some(m=>m!=null)) return; SM.saved=true;
+  const prevU=new Set(ACH.unlocked), prevS=ACH.stage;
+  addStepRound([Date.now(), iso(SM.dt), SM.taps[0], SM.taps[1], SM.taps[2], SM.ms[0], SM.ms[1], SM.ms[2], 2]);
+  ACH.ach.filter(a=>a.r.ok&&!prevU.has(a.id)).forEach(a=>toast(tr("Errungenschaft","Achievement"),(EMO[a.id]||"🏅")+" "+a.name+" · "+a.desc));
+  if(ACH.stage>prevS) toast(tr("Neue Stufe","New stage"),tr(`Du bist jetzt ${ACH.stages[ACH.stage].name}!`,`You are now ${ACH.stages[ACH.stage].name}!`));
+}
+function nextAction(){ clearTimeout(nextTimer);
+  if(SM&&!counting){ if(SM.waiting&&SM.step<2){ stepShow(SM.step+1); return; } if(!SM.waiting&&SM.ms[SM.step]==null){ if(performance.now()-t0>500) stepAnswer(null,true); return; } }
+  newRound(); }
+addEventListener("pagehide",()=>saveStep());
 function applyMode(){ document.querySelectorAll("#modeSeg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.tm===(prefs.tmode||"normal"))); labelPad(); }
 document.querySelectorAll("#modeSeg button").forEach(b=>b.addEventListener("click",()=>{ if(prefs.tmode===b.dataset.tm) return; prefs.tmode=b.dataset.tm; LS.set("prefs",prefs); applyMode(); if(curView==="train"){ resetSession(); newRound(); } }));
 function newRound(){
-  stopAll(); cur=null; answered=false; counting=true; SM=null; $("dSub").hidden=true;
+  saveStep(); stopAll(); cur=null; answered=false; counting=true; SM=null; $("dSub").hidden=true;
   setPadEnabled(false); nextBtn.disabled=true;
   $("leafLabel").textContent=tr("Gleich geht's los","Get ready"); $("timer").textContent=fmtS(0);
   const line=$("dLine"); let n=+prefs.cd||0;
@@ -655,7 +667,7 @@ function answer(i){
 document.addEventListener("keydown",e=>{
   if($("v-train").hidden || e.target.matches("input,select")) return;
   if(e.key>="0"&&e.key<="6"){answer(e.key==="0"?6:+e.key-1);e.preventDefault();}
-  else if(e.key===" "||e.key==="Enter"){ if(answered||(SM&&SM.waiting)){nextAction();e.preventDefault();} }
+  else if(e.key===" "||e.key==="Enter"){ if(answered||SM){nextAction();e.preventDefault();} }
 });
 
 /* ---------- stats ---------- */
@@ -827,18 +839,22 @@ function randCard(L){
 function stepsCard(){
   let R=stepRounds; if(period){ const st=new Date(); st.setHours(0,0,0,0); st.setDate(st.getDate()-(period-1)); R=R.filter(r=>r.t>=st.getTime()); }
   if(!R.length) return `<div class="card"><h2>${tr("Schritt für Schritt","Step by step")}</h2><p class="note">${tr("Noch keine Runden in diesem Zeitraum. Stelle in den Einstellungen den Trainingsmodus „Schritt für Schritt“ ein, dann siehst du hier, wie viel Zeit du für Jahrhundert-Anker, Jahres-Offset und Datums-Offset brauchst.","No step-by-step rounds in this period yet. Set the training mode to “Step by step” in Settings to see how long you need for the century anchor, year offset and date offset.")}</p></div>`;
-  const avg=[0,1,2].map(k=>R.reduce((p,r)=>p+r.ms[k],0)/R.length), sum=avg[0]+avg[1]+avg[2];
-  const okc=[0,1,2].map(k=>R.filter(r=>{const t=stepTruth(parseISO(r.d)); return r.a[k]===t[k];}).length);
+  const avg=[0,1,2].map(k=>{const v=R.filter(r=>r.a[k]!=null&&r.ms[k]!=null); return v.length?v.reduce((p,r)=>p+r.ms[k],0)/v.length:0;}), sum=avg[0]+avg[1]+avg[2]||1;
+  const TR=R.map(r=>stepTruth(parseISO(r.d))), okc=[0,1,2].map(k=>R.filter((r,x)=>r.a[k]===TR[x][k]).length);
+  const played=[0,1,2].map(k=>R.filter(r=>r.ms[k]!=null).length), errc=[0,1,2].map(k=>played[k]-okc[k]);
+  const perf=R.filter((r,x)=>r.a.every((v,k)=>v===TR[x][k])).length, bad=R.filter((r,x)=>r.a.some((v,k)=>r.ms[k]!=null&&v!==TR[x][k])).length;
+  const skp=R.reduce((p,r)=>p+r.a.filter((v,k)=>v==null&&r.ms[k]!=null).length,0), np=played[0]+played[1]+played[2];
   const col=["var(--s1)","var(--s2)","var(--s3)"], names=STEPN();
   const R0=50, C=2*Math.PI*R0; let off=0, arcs="";
   avg.forEach((v,k)=>{ const len=v/sum*C; arcs+=`<circle cx="66" cy="66" r="${R0}" fill="none" stroke="${col[k]}" stroke-width="24" stroke-dasharray="${Math.max(0,len-1.5).toFixed(2)} ${(C-len+1.5).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 66 66)"><title>${names[k]}: Ø ${fmtS(v)} (${pct(v/sum)})</title></circle>`; off+=len; });
-  const big=avg.indexOf(Math.max(...avg)), weak=okc.indexOf(Math.min(...okc));
+  const big=avg.indexOf(Math.max(...avg)), weak=errc.indexOf(Math.max(...errc));
   const short=[tr("Anker","Anchor"),tr("Jahr","Year"),tr("Datum","Date")];
-  const leg=[0,1,2].map(k=>`<div class="${k===big?"top":""}"><i style="background:${col[k]}"></i><span style="text-align:left;color:inherit;font-size:13px">${short[k]}</span><span>Ø ${fmtS(avg[k])}</span><span>${pct(avg[k]/sum)}</span></div><div style="grid-template-columns:12px 1fr;margin-top:-3px"><i style="background:none"></i><span style="text-align:left;font-size:11px">✅ ${okc[k]} ❌ ${R.length-okc[k]}</span></div>`).join("");
+  const leg=[0,1,2].map(k=>`<div class="${k===big?"top":""}"><i style="background:${col[k]}"></i><span style="text-align:left;color:inherit;font-size:13px">${short[k]}</span><span>Ø ${avg[k]?fmtS(avg[k]):"–"}</span><span>${pct(avg[k]/sum)}</span></div><div style="grid-template-columns:12px 1fr;margin-top:-3px"><i style="background:none"></i><span style="text-align:left;font-size:11px">✅ ${okc[k]} ❌ ${errc[k]}</span></div>`).join("");
   return `<div class="card"><h2>${tr("Schritt für Schritt","Step by step")}</h2>
-    <p class="insight">${tr(`Die meiste Zeit kostet <b class="v-bad">${names[big]}</b> (${pct(avg[big]/sum)}).`,`Most of your time goes into <b class="v-bad">${names[big]}</b> (${pct(avg[big]/sum)}).`)}${okc[weak]<R.length?" "+tr(`Am häufigsten falsch: <b>${names[weak]}</b>.`,`Most often wrong: <b>${names[weak]}</b>.`):""}</p>
+    <div class="sround"><span><b>${nf(R.length)}</b> ${tr("Runden","rounds")}</span><span><b>✅ ${nf(perf)}</b> ${tr("fehlerfrei","perfect")}</span><span><b>❌ ${nf(bad)}</b> ${tr("mit Fehler","with errors")}</span><span><b>${np?pct((okc[0]+okc[1]+okc[2])/np):"–"}</b> ${tr("Schritte richtig","steps right")}</span></div>
+    <p class="insight">${tr(`Die meiste Zeit kostet <b class="v-bad">${names[big]}</b> (${pct(avg[big]/sum)}).`,`Most of your time goes into <b class="v-bad">${names[big]}</b> (${pct(avg[big]/sum)}).`)}${errc[weak]>0?" "+tr(`Am häufigsten falsch: <b>${names[weak]}</b>.`,`Most often wrong: <b>${names[weak]}</b>.`):""}</p>
     <div class="pie"><svg viewBox="0 0 132 132" role="img" aria-label="${tr("Zeitanteil je Schritt","Time share per step")}">${arcs}<text x="66" y="62" text-anchor="middle" style="font-size:17px;font-weight:700;fill:var(--ink)">${fmtS(sum)}</text><text x="66" y="79" text-anchor="middle" style="font-size:11px;fill:var(--muted)">Ø ${tr("gesamt","total")}</text></svg><div class="pie-leg">${leg}</div></div>
-    <p class="note expl">${tr(`Anteil der Ø Zeit je Schritt aus ${R.length} Runden im gewählten Zeitraum.`,`Share of the average time per step from ${R.length} rounds in the selected period.`)}</p></div>`;
+    <p class="note expl">${tr(`Anteil der Ø Zeit je Schritt aus ${R.length} Runden im gewählten Zeitraum. ❌ zählt falsche und übersprungene Schritte${skp?` (${nf(skp)} übersprungen)`:""}. „Weiter“ ohne Antwort überspringt einen Schritt. Schritte einer abgebrochenen Runde, die du nicht mehr gesehen hast, zählen nicht.`,`Share of the average time per step from ${R.length} rounds in the selected period. ❌ counts wrong and skipped steps${skp?` (${nf(skp)} skipped)`:""}. “Next” without an answer skips a step. Steps of an unfinished round that you never saw don’t count.`)}</p></div>`;
 }
 /* heatmap weekday x month */
 let heatState=null, hSel=null;
@@ -988,7 +1004,7 @@ function renderStats(){ renderStatsInner(); bindCharts(); bindDaily(); bindHist(
 function renderStatsInner(){
   const box=$("statsBody"); const L=filtered();
   if(!L.length){
-    box.innerHTML=dailyCard()+(stepRounds.length?stepsCard():"")+`<div class="card"><div class="empty"><b>${tr("Noch keine Versuche","No attempts yet")}</b><span>${attempts.length?tr("In diesem Zeitraum gibt es keine Antworten.","There are no answers in this period."):tr("Sobald du im Tab „Trainieren“ antwortest, erscheinen hier Trefferquote, Zeiten und deine schwächsten Wochentage.","As soon as you answer in the “Train” tab, accuracy, times and your weakest weekdays appear here.")}</span></div></div>`;
+    box.innerHTML=dailyCard()+(stepRounds.length?stepsCard():"")+`<div class="card"><div class="empty"><b>${tr("Noch keine Versuche","No attempts yet")}</b><span>${attempts.length?tr("In diesem Zeitraum gibt es keine Antworten.","There are no answers in this period."):stepRounds.length?tr("Trefferquote, Zeiten und Wochentage zählen Antworten im normalen Modus. Deine Schritt-Runden stehen oben.","Accuracy, times and weekdays count answers in normal mode. Your step-by-step rounds are shown above."):tr("Sobald du im Tab „Trainieren“ antwortest, erscheinen hier Trefferquote, Zeiten und deine schwächsten Wochentage.","As soon as you answer in the “Train” tab, accuracy, times and your weakest weekdays appear here.")}</span></div></div>`;
     return;
   }
   const ok=L.filter(a=>a.a===a.c), okMs=ok.map(a=>a.ms);
@@ -1580,52 +1596,66 @@ function applyNotes(){ document.body.classList.toggle("nonotes",!prefs.notes); }
 applyNotes();
 
 /* ---------- CSV export / import ---------- */
-const CSV_HEAD=()=>tr(["Zeitpunkt","Datum","Wochentag","Getippt","Richtig","Zeit (s)","ts","ms"],["Timestamp","Date","Weekday","Tapped","Correct","Seconds","ts","ms"]);
+const CSV_HEAD=()=>tr(["Zeitpunkt","Datum","Wochentag","Getippt","Richtig","Zeit (s)","ts","ms","Modus","Anker getippt","Anker Lösung","Anker ms","Jahr getippt","Jahr Lösung","Jahr ms","Tag getippt","Tag Lösung","Tag ms"],
+  ["Timestamp","Date","Weekday","Tapped","Correct","Seconds","ts","ms","Mode","Anchor tapped","Anchor solution","Anchor ms","Year tapped","Year solution","Year ms","Day tapped","Day solution","Day ms"]);
+const MODE_N=()=>[tr("Normal","Normal"),tr("Schritte","Steps")];
 function ioMsg(t,bad){ const p=$("ioMsg"); p.hidden=false; p.textContent=t; p.style.color=bad?"var(--bad)":""; }
 function buildCSV(){
   const z=n=>String(n).padStart(2,"0");
-  const rows=attempts.map(a=>{const d=new Date(a.t);
-    return [`${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`,
-      a.d, WD[a.c], WD[a.a], a.a===a.c?tr("ja","yes"):tr("nein","no"), (a.ms/1000).toLocaleString(loc(),{minimumFractionDigits:1,maximumFractionDigits:3}), a.t, a.ms].join(";");});
+  const when=t=>{const d=new Date(t); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;};
+  const sec=ms=>(ms/1000).toLocaleString(loc(),{minimumFractionDigits:1,maximumFractionDigits:3}), e=v=>v==null?"":v;
+  const rows=[...attempts.map(a=>[a.t,[when(a.t), a.d, WD[a.c], WD[a.a], a.a===a.c?tr("ja","yes"):tr("nein","no"), sec(a.ms), a.t, a.ms, MODE_N()[0],"","","","","","","","",""]]),
+    ...stepRounds.map(r=>{ const T=stepTruth(parseISO(r.d)), ok=r.a.every((v,k)=>v===T[k]), tot=r.ms.reduce((p,v)=>p+(v||0),0);
+      return [r.t,[when(r.t), r.d, WD[monIdx(parseISO(r.d))], "", ok?tr("ja","yes"):tr("nein","no"), sec(tot), r.t, tot, MODE_N()[1], ...[0,1,2].flatMap(k=>[e(r.a[k]),T[k],e(r.ms[k])])]]; })]
+    .sort((x,y)=>x[0]-y[0]).map(x=>x[1].join(";"));
   return "﻿"+[CSV_HEAD().join(";"),...rows].join("\r\n")+"\r\n";
 }
+const ioCount=(a=attempts.length,sr=stepRounds.length)=>[a||!sr?tr(`${a} ${a===1?"Antwort":"Antworten"}`,`${a} ${a===1?"answer":"answers"}`):"", sr?tr(`${sr} ${sr===1?"Schritt-Runde":"Schritt-Runden"}`,`${sr} ${sr===1?"step round":"step rounds"}`):""].filter(Boolean).join(tr(" und "," and "));
 async function exportCSV(){
-  if(!attempts.length){ ioMsg(tr("Noch keine Antworten zum Exportieren.","No answers to export yet.")); return; }
+  if(!attempts.length&&!stepRounds.length){ ioMsg(tr("Noch keine Antworten zum Exportieren.","No answers to export yet.")); return; }
   const csv=buildCSV(), d=new Date(), name=`wochentag-trainer-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}.csv`;
   let dl=null; try{ if(window.claude&&window.claude.use) dl=await window.claude.use("downloads"); }catch(e){}
-  if(dl){ try{ await dl.save({filename:name,data:csv}); ioMsg(tr(`${attempts.length} Antworten exportiert.`,`${attempts.length} answers exported.`)); }
+  if(dl){ try{ await dl.save({filename:name,data:csv}); ioMsg(ioCount()+tr(" exportiert."," exported.")); }
     catch(e){ if(!e||e.code!=="declined") ioMsg(tr("Export hier nicht möglich.","Export isn’t possible here."),true); } return; }
   const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
   const ios=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
   try{ const file=new File([blob],name,{type:"text/csv"});
-    if(ios&&navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],title:name}); ioMsg(tr(`${attempts.length} Antworten exportiert.`,`${attempts.length} answers exported.`)); return; } }catch(e){ if(e&&e.name==="AbortError") return; }
+    if(ios&&navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],title:name}); ioMsg(ioCount()+tr(" exportiert."," exported.")); return; } }catch(e){ if(e&&e.name==="AbortError") return; }
   const url=URL.createObjectURL(blob), a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),2000); ioMsg(tr(`${attempts.length} Antworten exportiert.`,`${attempts.length} answers exported.`));
+  setTimeout(()=>URL.revokeObjectURL(url),2000); ioMsg(ioCount()+tr(" exportiert."," exported."));
 }
 function importCSV(text){
   text=text.replace(/^﻿/,""); const lines=text.split(/\r?\n/).filter(l=>l.trim());
   if(lines.length<2) throw new Error(tr("Die Datei enthält keine Antworten.","The file contains no answers."));
   const sep=lines[0].includes(";")?";":",", head=lines[0].split(sep).map(h=>h.trim().replace(/^"|"$/g,"").toLowerCase());
-  const col=(...n)=>{for(const x of n){const i=head.indexOf(x); if(i>=0) return i;} return -1;}, iT=col("ts"), iD=col("datum","date"), iW=col("wochentag","weekday"), iG=col("getippt","tapped"), iM=col("ms");
+  const col=(...n)=>{for(const x of n){const i=head.indexOf(x); if(i>=0) return i;} return -1;}, iT=col("ts"), iD=col("datum","date"), iW=col("wochentag","weekday"), iG=col("getippt","tapped"), iM=col("ms"), iMo=col("modus","mode"), iS=[["anker getippt","anchor tapped"],["anker ms","anchor ms"],["jahr getippt","year tapped"],["jahr ms","year ms"],["tag getippt","day tapped"],["tag ms","day ms"]].map(n=>col(...n));
   const wIdx=v=>{const x=(v||"").toLowerCase(); for(const L of ["de","en"]){const i=I18N[L].WD.findIndex(w=>w.toLowerCase()===x); if(i>=0) return i;} return -1;};
   if([iT,iD,iW,iG,iM].some(i=>i<0)) throw new Error(tr("Unbekanntes Format. Bitte eine CSV aus „CSV exportieren“ verwenden.","Unknown format. Please use a CSV from “Export CSV”."));
-  const have=new Set(attempts.map(a=>a.t)), touched=new Set(); let add=0, skip=0, bad=0;
+  const have=new Set(attempts.map(a=>a.t)), haveS=new Set(stepRounds.map(r=>r.t)), touched=new Set(); let add=0, addS=0, skip=0, bad=0;
+  const num=v=>v===""||v==null?null:+v;
   for(const line of lines.slice(1)){
     const c=line.split(sep).map(v=>v.trim().replace(/^"|"$/g,""));
+    if(iMo>=0&&/^(schritte|steps)$/i.test(c[iMo]||"")){
+      const t=+c[iT], d=c[iD], v=iS.map(i=>i<0?undefined:num(c[i]));
+      if(!isFinite(t)||!/^\d{4}-\d{2}-\d{2}$/.test(d)||v.some(x=>x===undefined||(x!=null&&!isFinite(x)))||[v[0],v[2],v[4]].some(x=>x!=null&&(x<0||x>6))){ bad++; continue; }
+      if(haveS.has(t)){ skip++; continue; }
+      const r=[t,d,v[0],v[2],v[4],v[1],v[3],v[5],2], k="s-"+keyOf(t).slice(2); (months[k] ||= []).push(r); if(mode==="db") pending.push(r);
+      haveS.add(t); touched.add(k); addS++; continue;
+    }
     const t=+c[iT], d=c[iD], w=wIdx(c[iW]), g=wIdx(c[iG]), ms=+c[iM];
     if(!isFinite(t)||!/^\d{4}-\d{2}-\d{2}$/.test(d)||w<0||g<0||!isFinite(ms)){ bad++; continue; }
     if(have.has(t)){ skip++; continue; }
     const r=[t,d,w,g,Math.round(ms)], k=keyOf(t); (months[k] ||= []).push(r); if(mode==="db") pending.push(r);
     have.add(t); touched.add(k); add++;
   }
-  if(add){ saveLocal(); touched.forEach(k=>persist(k)); rebuild(); }
-  return {add,skip,bad};
+  if(add||addS){ saveLocal(); touched.forEach(k=>persist(k)); rebuild(); }
+  return {add,addS,skip,bad};
 }
 $("csvOut").addEventListener("click",exportCSV);
 $("csvIn").addEventListener("change",async e=>{
   const file=e.target.files&&e.target.files[0]; e.target.value=""; if(!file) return;
   try{ const r=importCSV(await file.text());
-    ioMsg(tr(`${r.add} Antworten importiert`,`${r.add} answers imported`)+(r.skip?tr(`, ${r.skip} waren schon vorhanden`,`, ${r.skip} were already there`):"")+(r.bad?tr(`, ${r.bad} Zeilen übersprungen`,`, ${r.bad} lines skipped`):"")+"."); }
+    ioMsg(ioCount(r.add,r.addS)+tr(" importiert"," imported")+(r.skip?tr(`, ${r.skip} waren schon vorhanden`,`, ${r.skip} were already there`):"")+(r.bad?tr(`, ${r.bad} Zeilen übersprungen`,`, ${r.bad} lines skipped`):"")+"."); }
   catch(err){ ioMsg(err.message||tr("Import fehlgeschlagen.","Import failed."),true); }
 });
 
@@ -1646,7 +1676,7 @@ $("resetBtn").onclick=askReset;
 let curView="train";
 function show(v){
   if(v===curView) return;
-  if(v==="train"){ resetSession(); newRound(); } else stopAll();
+  if(v==="train"){ resetSession(); newRound(); } else { saveStep(); SM=null; stopAll(); }
   curView=v; document.body.classList.toggle("lock",v==="train"); $("nextBtn").hidden=v!=="train";
   ["train","stats","ach","set"].forEach(k=>$("v-"+k).hidden=k!==v);
   document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.v===v));
