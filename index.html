@@ -248,6 +248,7 @@ nav.tabs button[aria-selected="true"]{color:var(--accent);font-weight:600}
 .march small{font-size:10px;line-height:1.2;text-align:center;max-width:100%;min-height:2.4em;hyphens:manual;letter-spacing:-.01em}
 .march em{font-style:normal;font-size:9px;color:var(--muted);text-align:center;line-height:1.2}
 .march .now small,.march .done small{font-weight:600}
+.stage-card{animation:stIn .22s ease-out}@keyframes stIn{from{opacity:0;transform:translateY(-6px)}}@media (prefers-reduced-motion:reduce){.stage-card{animation:none}}
 .evo-bar{height:8px;border-radius:4px;background:var(--soft);overflow:hidden}
 .evo-bar i{display:block;height:100%;background:var(--accent);border-radius:4px}
 .evo-meta{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted)}
@@ -1464,7 +1465,7 @@ const STAGES=[
   {nm:["Einstein","Einstein"],era:["1905","1905"],tx:["Kalender-Genie: jedes Datum in Sekunden.","Calendar genius: any date in seconds."],
    req:(m,u)=>[cnt(tr("Alle Errungenschaften","All achievements"),u,ACHS.length),accC(m,100,.9),avgC(m,10,8000),fast(tr("Bestzeit ≤ ","Best time ≤ ")+fmtS(3000),m.best,3000)]}
 ].map(o=>({req:o.req,get name(){return tr(...o.nm)},get txt(){return tr(...o.tx)},get era(){return tr(...o.era)}}));
-let ACH={unlocked:new Set(),stage:-1,ach:[],stages:[]}, selStage=null;
+let ACH={unlocked:new Set(),stage:-1,ach:[],stages:[]}, selStage=null, stClosed=false;
 function computeAch(){
   const m=metrics();
   const ach=ACHS.map(a=>({...a,r:a.get(m)}));
@@ -1479,7 +1480,7 @@ function renderAch(){
   const sel = selStage==null ? (stage>=stages.length-1?stage:nextI) : selStage;
   const total=stage>=stages.length-1?1:(stage+1+stages[nextI].p)/stages.length;
   const march=stages.map((st,i)=>{const cls=i<stage?"done":i===stage?"now":i===stage+1?"next":"locked";
-    return `<button type="button" class="${cls}" data-st="${i}" aria-pressed="${i===sel}" aria-label="${tr("Stufe","Stage")} ${i+1}: ${st.name}">${fig(i)}<small>${st.name.replace("Neandertaler","Neander&shy;taler").replace("Neanderthal","Neander&shy;thal").replace("Australopithecus","Australo&shy;pithecus")}</small><em>${st.era}</em></button>`}).join("");
+    return `<button type="button" class="${cls}" data-st="${i}" aria-pressed="${!stClosed&&i===sel}" aria-expanded="${!stClosed&&i===sel}" aria-label="${tr("Stufe","Stage")} ${i+1}: ${st.name}">${fig(i)}<small>${st.name.replace("Neandertaler","Neander&shy;taler").replace("Neanderthal","Neander&shy;thal").replace("Australopithecus","Australo&shy;pithecus")}</small><em>${st.era}</em></button>`}).join("");
   const S=stages[sel], state=S.reached?["ok",tr("Erreicht","Reached")]:sel===stage+1?["go",tr("Nächstes Ziel","Next goal")]:["",tr("Gesperrt","Locked")];
   const reqs=S.req.map(r=>`<div class="req${r.ok?" ok":""}"><span class="ck">${r.ok?"✓":""}</span><span>${r.t}</span><span class="v">${r.v}</span><div class="mb"><i style="width:${Math.round(r.p*100)}%"></i></div></div>`).join("");
   const lockNote = !S.reached && sel>stage+1 ? `<p class="note">${tr(`Zuerst „${stages[sel-1].name}“ erreichen.`,`Reach “${stages[sel-1].name}” first.`)}</p>` : "";
@@ -1492,19 +1493,19 @@ function renderAch(){
     <div class="march" id="march">${march}</div>
     <div class="evo-bar"><i style="width:${Math.round(total*100)}%"></i></div>
     <div class="evo-meta"><span>${stage<0?tr("Noch keine Stufe","No stage yet"):tr("Stufe ","Stage ")+(stage+1)+tr(" von "," of ")+stages.length}</span><span>${stage>=stages.length-1?tr("Ziel erreicht","Goal reached"):pct(stages[nextI].p)+tr(" bis "," to ")+stages[nextI].name}</span></div>
-    <p class="note">${tr("Wische durch den Zeitstrahl und tippe auf eine Figur, um ihre Bedingungen zu sehen.","Swipe through the timeline and tap a figure to see what it takes.")}</p>
+    <p class="note">${tr("Wische durch den Zeitstrahl und tippe auf eine Figur, um ihre Bedingungen zu sehen. Nochmal tippen klappt sie wieder zu.","Swipe through the timeline and tap a figure to see what it takes. Tap it again to close.")}</p>
   </div>
-  <div class="card">
+  ${stClosed?"":`<div class="card stage-card">
     <div class="stage-h"><h3>${sel+1}. ${S.name}</h3><span class="tag ${state[0]}">${state[1]}</span></div>
     <div class="era">${S.era}</div>
     <div class="stage-art ${sel<stage?"sa-done":sel===stage?"sa-now":sel===stage+1?"sa-next":"sa-locked"}">${fig(sel)}</div>
     <p class="note" style="font-size:13px">${S.txt}</p>${lockNote}
     <div class="reqs">${reqs}</div>
-  </div>
+  </div>`}
   <div class="card"><h2>${tr("Errungenschaften","Achievements")} · ${unlocked.size} / ${ach.length}</h2><div class="badges">${badges}</div></div>`;
   const mr=$("march"), cur=mr&&mr.querySelector(`[data-st="${Math.min(stage+1,stages.length-1)}"]`); if(cur&&!mr.dataset.k){ mr.scrollLeft=cur.offsetLeft-mr.clientWidth/2+cur.offsetWidth/2; }
 }
-$("achBody").addEventListener("click",e=>{const b=e.target.closest("[data-st]"); if(b){const k=+b.dataset.st, sl=$("march").scrollLeft; selStage=k; renderAch(); $("march").scrollLeft=sl; return;}
+$("achBody").addEventListener("click",e=>{const b=e.target.closest("[data-st]"); if(b){const k=+b.dataset.st, sl=$("march").scrollLeft; if(b.getAttribute("aria-pressed")==="true") stClosed=true; else { selStage=k; stClosed=false; } renderAch(); $("march").scrollLeft=sl; return;}
   const a=e.target.closest("[data-ach]"); if(a) openCoin(a.dataset.ach); });
 $("achBody").addEventListener("keydown",e=>{ const a=e.target.closest&&e.target.closest("[data-ach]"); if(a&&(e.key==="Enter"||e.key===" ")){ e.preventDefault(); openCoin(a.dataset.ach); } });
 /* floating 3D coin for one achievement: drag to spin, idle slow spin, tap outside to close */

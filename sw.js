@@ -1,6 +1,6 @@
 // Offline-Cache für den Wochentag-Trainer.
 // Nach jeder Änderung an den Dateien die Versionsnummer bei CACHE erhöhen.
-const CACHE = "wochentag-trainer-v21";
+const CACHE = "wochentag-trainer-v22";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./favicon.svg",
                "./apple-touch-icon.png", "./icon-192.png", "./icon-512.png"];
 
